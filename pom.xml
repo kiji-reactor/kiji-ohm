@@ -1,0 +1,59 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.kiji</groupId>
+  <artifactId>kiji-ohm</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+
+  <repositories>
+    <repository>
+      <id>kiji-nightly</id>
+      <name>kiji-nightly</name>
+      <url>https://repo.wibidata.com/artifactory/kiji-nightly</url>
+    </repository>
+  </repositories>
+
+   <parent>
+	<groupId>org.kiji.framework</groupId>
+	<artifactId>framework-pom</artifactId>
+	<version>1.1.0-SNAPSHOT</version>
+   </parent>
+
+  <dependencies>
+
+    <dependency>
+      <groupId>org.kiji.schema</groupId>
+      <artifactId>kiji-schema</artifactId>
+    </dependency>
+
+  </dependencies>
+
+  <!-- From https://wiki.scala-lang.org/display/SIW/ScalaEclipseMaven -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro-maven-plugin</artifactId>
+        <version>1.7.4</version>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>idl-protocol</goal>
+              <!-- <goal>schema</goal> -->
+            </goals>
+            <configuration>
+              <stringType>String</stringType>
+              <includes>
+                <include>*.avdl</include>
+              </includes>
+              <sourceDirectory>${project.basedir}/src/main/avro/</sourceDirectory>
+              <outputDirectory>${project.basedir}/src/main/java/</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
