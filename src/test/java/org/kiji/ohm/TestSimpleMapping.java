@@ -35,6 +35,14 @@ public class TestSimpleMapping extends KijiClientTest {
   public final void setup() throws Exception {
     mKiji = new InstanceBuilder(getKiji())
         .withTable(KijiTableLayouts.getLayout(USER_TABLE_LAYOUT))
+            .withRow("taton")
+                .withFamily("info")
+                    .withQualifier("login").withValue("taton")
+                    .withQualifier("full_name").withValue("Christophe Taton")
+                    .withQualifier("birth_date").withValue(1372272810769L)
+                    .withQualifier("zip_code")
+                        .withValue(1L, 94110)
+                        .withValue(2L, 94131)
         .build();
     mTable = mKiji.openTable("user_table");
   }
@@ -50,6 +58,12 @@ public class TestSimpleMapping extends KijiClientTest {
   @Test
   public void testSimpleMapping() throws Exception {
     final KijiDao dao = new KijiDao(mKiji);
+    try {
+      final User user = dao.select(User.class, mTable.getEntityId("taton"));
+
+    } finally {
+      dao.close();
+    }
   }
 
   // -----------------------------------------------------------------------------------------------
