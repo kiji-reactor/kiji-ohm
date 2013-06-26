@@ -59,7 +59,7 @@ public class TestSimpleMapping extends KijiClientTest {
              .withFamily("info")
                .withQualifier("login").withValue("amit")
                .withQualifier("full_name").withValue("Amit N")
-             .withFamily("queries")
+             .withFamily("query_count")
                .withQualifier("hello").withValue(1L,20)
                .withQualifier("hello").withValue(2L,30)
                .withQualifier("world").withValue(1L,20)
@@ -123,7 +123,7 @@ public class TestSimpleMapping extends KijiClientTest {
     try {
       final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("amit"));
       assertEquals("Amit N", user.fullName);
-      assertEquals(30, (int) user.queryCounts.get("hello").firstEntry().getValue());
+      assertEquals(30, (int) user.queryCount.get("hello").firstEntry().getValue());
     } finally {
       dao.close();
     }
@@ -180,7 +180,7 @@ public class TestSimpleMapping extends KijiClientTest {
     @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
     public TimeSeries<Integer> zipCodes;
 
-    @KijiColumn(family="queries", maxVersions=1)
-    public MapTypeValue<Integer> queryCounts;
+    @KijiColumn(family="query_count", maxVersions=1)
+    public MapTypeValue<Integer> queryCount;
   }
 }
