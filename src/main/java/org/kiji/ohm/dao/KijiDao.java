@@ -142,7 +142,8 @@ public final class KijiDao implements Closeable {
         final KijiRowData row = reader.get(entityId, dataRequest);
 
         try {
-          return (T) createEntityFromRow(klass, row, rowKeyFormat);
+          final T entity = spec.newEntity();
+          return spec.populateEntityFromRow(entity, row);
         } catch (IllegalAccessException iae) {
           throw new RuntimeException(iae);
         }
@@ -173,124 +174,6 @@ public final class KijiDao implements Closeable {
     throw new NotImplementedException();
   }
 
-  /**
-   * Creates an entity object from a KijiRowData.
-   *
-   * @param klass Class of the entity object to instantiate and populate.
-   * @return a new populated entity object.
-   */
-  private static <T> T createEntityFromRow(
-      Class<T> klass,
-      KijiRowData row,
-      RowKeyFormat2 rowKeyFormat)
-      throws IOException, IllegalAccessException {
-
-    LOG.debug("Creating entity '{}' from row with ID '{}'.", klass, row.getEntityId());
-    final T entity = newInstance(klass);
-    final EntityId eid = row.getEntityId();
-
-    for (final Field field : klass.getDeclaredFields()) {
-      final KijiColumn column = field.getAnnotation(KijiColumn.class);
-      final EntityIdField eidField = field.getAnnotation(EntityIdField.class);
-
-      if ((column != null) && (eidField != null)) {
-        throw new IllegalArgumentException(String.format(
-            "Field '%s' cannot have both @KijiColumn and @EntityIdField annotations.", field));
-
-      } else if (column != null) {
-        if (column.qualifier().isEmpty()) {
-          LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
-          MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
-          if (column.maxVersions() == 1) {
-            // Field is a map: qualifier -> single value:
-            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
-            // over it to construct this MapTypeValue.
-            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells = row.getCells(column
-                .family());
-            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
-              String qualifier = e.getKey();
-              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
-              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
-                mapValues.put(qualifier, new TCell<Object>(ee.getKey(), ee.getValue().getData()));
-              }
-            }
-            LOG.debug("Populating single version map field '{}'.", field);
-          }
-          else { //Multi-version map type family
-              // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
-              // over it to construct this MapTypeValue.
-              NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells = row.getCells(column
-                  .family());
-              for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
-                String qualifier = e.getKey();
-                NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
-                TimeSeries<Object> timeseries = new TimeSeries<Object>();
-                for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) { //Should only be 1 iteration.
-                  timeseries.put(ee.getKey(), new TCell<Object>(ee.getKey(), ee.getValue().getData()));
-                }
-                mapValues.put(qualifier, timeseries);
-              }
-              LOG.debug("Populating single version map field '{}'.", field);
-              field.set(entity, mapValues);
-          }
-        } else { //Group family
-          if (column.maxVersions() == 1) { // Single version group family
-            // Field represents a single value from a fully-qualified column:
-            LOG.debug("Populating field '{}' from column '{}:{}'.",
-                field, column.family(), column.qualifier());
-            Object value = row.getMostRecentValue(column.family(), column.qualifier());
-            if (field.getType() == String.class && value != null) {
-              // Automatically converts CharSequence to java String if necessary:
-              value = value.toString();
-            }
-            field.setAccessible(true);
-            field.set(entity, value);
-          } else { // Multi-version group family
-            // Field represents a time-series from a fully-qualified column:
-            // TODO: Field is a time-series: implement a TimeSeries class
-            TimeSeries<Object> timeseries = new TimeSeries<Object>();
-            Iterator<KijiCell<Object>> it = row.iterator(column.family(),column.qualifier());
-            while(it.hasNext()) {
-              KijiCell<Object> cell = it.next();
-              timeseries.put(cell.getTimestamp(), new TCell<Object>(cell.getTimestamp(), cell.getData()));
-            }
-            field.setAccessible(true);
-            field.set(entity, timeseries);
-          }
-        }
-
-      } else if (eidField != null) {
-        boolean found = false;
-        int index = 0;
-        // TODO: Optimize lookup of entity ID components.
-        for (final RowKeyComponent rkc : rowKeyFormat.getComponents()) {
-          if (rkc.getName().equals(eidField.component())) {
-            field.setAccessible(true);
-            field.set(entity, eid.getComponentByIndex(index));
-            found = true;
-            break;
-          } else {
-            index += 1;
-          }
-          Preconditions.checkState(found);
-        }
-
-      } else {
-        LOG.debug("Ignoring field '{}' with no annotation.", field);
-      }
-    }
-
-    return entity;
-  }
-
-  private static <T> T newInstance(Class<T> klass) throws IllegalAccessException {
-    try {
-      return klass.newInstance();
-    } catch (InstantiationException ie) {
-      throw new RuntimeException(ie);
-    }
-  }
-
   // -----------------------------------------------------------------------------------------------
 
   /**
@@ -307,7 +190,11 @@ public final class KijiDao implements Closeable {
     /** Fields populated from the row entity ID components. */
     private final ImmutableList<Field> mEntityIdFields;
 
-    private final ImmutableMap<String, RowKeyComponent> mRowKeyComponents;
+    /** Map from row key component name to row key component specs. */
+    private final ImmutableMap<String, RowKeyComponent> mRowKeyComponentMap;
+
+    /** Map from row key component name to row key component index. */
+    private final ImmutableMap<String, Integer> mRowKeyComponentIndexMap;
 
     public EntitySpec(Class<T> klass, Kiji kiji) throws IOException {
       mClass = klass;
@@ -322,11 +209,15 @@ public final class KijiDao implements Closeable {
         final KijiTableLayout layout = table.getLayout();
         final RowKeyFormat2 rowKeyFormat = (RowKeyFormat2) layout.getDesc().getKeysFormat();
 
-        final Map<String, RowKeyComponent> rkComponents = Maps.newHashMap();
-        for (RowKeyComponent rkc : rowKeyFormat.getComponents()) {
-          rkComponents.put(rkc.getName(), rkc);
+        final Map<String, RowKeyComponent> rkcMap = Maps.newHashMap();
+        final Map<String, Integer> rkcIndexMap = Maps.newHashMap();
+        for (int index = 0; index < rowKeyFormat.getComponents().size(); ++index) {
+          final RowKeyComponent rkc = rowKeyFormat.getComponents().get(index);
+          rkcMap.put(rkc.getName(), rkc);
+          rkcIndexMap.put(rkc.getName(), index);
         }
-        mRowKeyComponents = ImmutableMap.copyOf(rkComponents);
+        mRowKeyComponentMap = ImmutableMap.copyOf(rkcMap);
+        mRowKeyComponentIndexMap = ImmutableMap.copyOf(rkcIndexMap);
 
         // --------------------------------------------------------------------
         // Parse fields with annotations from the entity class:
@@ -375,7 +266,7 @@ public final class KijiDao implements Closeable {
             field.setAccessible(true);
             entityIdFields.add(field);
 
-            final RowKeyComponent rkc = mRowKeyComponents.get(eidField.component());
+            final RowKeyComponent rkc = mRowKeyComponentMap.get(eidField.component());
             Preconditions.checkArgument(rkc != null,
                 "Field '%s' maps to unknown entity ID component '%s'.",
                 field, eidField.component());
@@ -407,9 +298,6 @@ public final class KijiDao implements Closeable {
         Preconditions.checkState(column != null);
 
         if (column.qualifier().isEmpty()) {
-          // TODO: Must be a map-type family!
-          // TODO: Field type must be a map of qualifier -> values/timeseries.
-
           LOG.debug("Requesting family '{}' for field '{}'.", column.family(), field);
           builder.addColumns(ColumnsDef.create()
               .withMaxVersions(column.maxVersions())
@@ -421,6 +309,98 @@ public final class KijiDao implements Closeable {
               .withMaxVersions(column.maxVersions())
               .add(column.family(), column.qualifier()));
         }
+      }
+    }
+
+    public T populateEntityFromRow(T entity, KijiRowData row)
+        throws IllegalAccessException, IOException {
+
+      // Populate fields from the row columns:
+      for (final Field field : mColumnFields) {
+        final KijiColumn column = field.getAnnotation(KijiColumn.class);
+        Preconditions.checkState(column != null);
+
+        if (column.qualifier().isEmpty()) {
+          LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
+          MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
+          if (column.maxVersions() == 1) {
+            // Field is a map: qualifier -> single value:
+            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
+            // over it to construct this MapTypeValue.
+            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
+                row.getCells(column.family());
+            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
+              String qualifier = e.getKey();
+              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
+                mapValues.put(qualifier, new TCell<Object>(ee.getKey(), ee.getValue().getData()));
+              }
+            }
+            LOG.debug("Populating single version map field '{}'.", field);
+            field.set(entity, mapValues);
+          }
+          else {
+            // Multi-version map type family
+            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
+            // over it to construct this MapTypeValue.
+            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
+                row.getCells(column.family());
+            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
+              String qualifier = e.getKey();
+              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+              TimeSeries<Object> timeseries = new TimeSeries<Object>();
+              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
+                // Should only be 1 iteration.
+                timeseries.put(ee.getKey(), new TCell<Object>(ee.getKey(), ee.getValue().getData()));
+              }
+              mapValues.put(qualifier, timeseries);
+            }
+            LOG.debug("Populating single version map field '{}'.", field);
+            field.set(entity, mapValues);
+          }
+        } else { //Group family
+          if (column.maxVersions() == 1) { // Single version group family
+            // Field represents a single value from a fully-qualified column:
+            LOG.debug("Populating field '{}' from column '{}:{}'.",
+                field, column.family(), column.qualifier());
+            Object value = row.getMostRecentValue(column.family(), column.qualifier());
+            if (field.getType() == String.class && value != null) {
+              // Automatically converts CharSequence to java String if necessary:
+              value = value.toString();
+            }
+            field.set(entity, value);
+          } else { // Multi-version group family
+            // Field represents a time-series from a fully-qualified column:
+            // TODO: Field is a time-series: implement a TimeSeries class
+            TimeSeries<Object> timeseries = new TimeSeries<Object>();
+            Iterator<KijiCell<Object>> it = row.iterator(column.family(),column.qualifier());
+            while(it.hasNext()) {
+              KijiCell<Object> cell = it.next();
+              timeseries.put(cell.getTimestamp(), new TCell<Object>(cell.getTimestamp(), cell.getData()));
+            }
+            field.set(entity, timeseries);
+          }
+        }
+      }
+
+      // ----------------------------------------------------------------------
+
+      // Populate fields from the row entity ID:
+      for (final Field field : mEntityIdFields) {
+        final EntityIdField eidField = field.getAnnotation(EntityIdField.class);
+        Preconditions.checkState(eidField != null);
+
+        final int index = mRowKeyComponentIndexMap.get(eidField.component());
+        field.set(entity, row.getEntityId().getComponentByIndex(index));
+      }
+      return entity;
+    }
+
+    private T newEntity() throws IllegalAccessException {
+      try {
+        return mClass.newInstance();
+      } catch (InstantiationException ie) {
+        throw new RuntimeException(ie);
       }
     }
   }
