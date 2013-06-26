@@ -7,7 +7,10 @@ import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
-public @interface EntityIdField {
+public @interface KijiColumn {
+  String family();
 
-  int component();
+  String qualifier() default "";
+
+  int maxVersions() default 1;
 }
