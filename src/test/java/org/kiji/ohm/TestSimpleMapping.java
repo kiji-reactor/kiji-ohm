@@ -66,6 +66,7 @@ public class TestSimpleMapping extends KijiClientTest {
     final KijiDao dao = new KijiDao(mKiji);
     try {
       final User user = dao.select(User.class, mTable.getEntityId("taton"));
+      LOG.debug("Decoded user: {}", user);
       assertEquals("Christophe Taton", user.fullName);
       assertEquals(94131, user.zipCode);
     } finally {
@@ -78,6 +79,7 @@ public class TestSimpleMapping extends KijiClientTest {
     final KijiDao dao = new KijiDao(mKiji);
     try {
       final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("taton"));
+      LOG.debug("Decoded user: {}", user);
       assertEquals("Christophe Taton", user.fullName);
       Integer[] expectedZips = {94131,94110};
       Integer[] actualZips = new Integer[2];

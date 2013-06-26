@@ -70,6 +70,13 @@ public final class KijiDao implements Closeable {
 
   // -----------------------------------------------------------------------------------------------
 
+  /**
+   * Reports the specification for an entity class.
+   *
+   * @param klass Class of the entity to specify.
+   * @return the specification for the given entity class.
+   * @throws IOException on I/O error.
+   */
   private <T> EntitySpec<T> getEntitySpec(Class<T> klass) throws IOException {
     synchronized(mEntitySpec) {
       @SuppressWarnings("unchecked")
@@ -128,10 +135,6 @@ public final class KijiDao implements Closeable {
     // TODO: Use a pool of tables and/or table readers
     final KijiTable table = mKiji.openTable(spec.getTableName());
     try {
-      // TODO: Support RowKeyFormat?
-      final RowKeyFormat2 rowKeyFormat =
-          (RowKeyFormat2) table.getLayout().getDesc().getKeysFormat();
-
       final KijiTableReader reader = table.openTableReader();
       try {
         final KijiDataRequestBuilder builder = KijiDataRequest.builder();
@@ -196,6 +199,13 @@ public final class KijiDao implements Closeable {
     /** Map from row key component name to row key component index. */
     private final ImmutableMap<String, Integer> mRowKeyComponentIndexMap;
 
+    /**
+     * Initializes a new specification for an Entity from an annotated Java class.
+     *
+     * @param klass Annotated Java class to derive an entity specification from.
+     * @param kiji Kiji instance where to fetch entities from.
+     * @throws IOException on I/O error.
+     */
     public EntitySpec(Class<T> klass, Kiji kiji) throws IOException {
       mClass = klass;
 
@@ -207,6 +217,8 @@ public final class KijiDao implements Closeable {
       final KijiTable table = kiji.openTable(mTableName);
       try {
         final KijiTableLayout layout = table.getLayout();
+
+        // TODO: Support deprecated RowKeyFormat?
         final RowKeyFormat2 rowKeyFormat = (RowKeyFormat2) layout.getDesc().getKeysFormat();
 
         final Map<String, RowKeyComponent> rkcMap = Maps.newHashMap();
@@ -292,6 +304,11 @@ public final class KijiDao implements Closeable {
       return mTableName;
     }
 
+    /**
+     * Populates a KijiDataRequest from this entity specification.
+     *
+     * @param builder Builder for the KijiDataRequest to populate.
+     */
     public void populateColumnRequests(KijiDataRequestBuilder builder) {
       for (final Field field : mColumnFields) {
         final KijiColumn column = field.getAnnotation(KijiColumn.class);
@@ -312,6 +329,15 @@ public final class KijiDao implements Closeable {
       }
     }
 
+    /**
+     * Populates an entity from a row.
+     *
+     * @param entity Entity object to populate from a row.
+     * @param row Kiji row to populate the entity from.
+     * @return the populated entity.
+     * @throws IllegalAccessException
+     * @throws IOException
+     */
     public T populateEntityFromRow(T entity, KijiRowData row)
         throws IllegalAccessException, IOException {
 
@@ -322,16 +348,16 @@ public final class KijiDao implements Closeable {
 
         if (column.qualifier().isEmpty()) {
           LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
-          MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
+          final MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
           if (column.maxVersions() == 1) {
             // Field is a map: qualifier -> single value:
             // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
             // over it to construct this MapTypeValue.
-            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
+            final NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
                 row.getCells(column.family());
-            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
-              String qualifier = e.getKey();
-              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
+              final String qualifier = entry.getKey();
+              final NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
               for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
                 mapValues.put(qualifier, new TCell<Object>(ee.getKey(), ee.getValue().getData()));
               }
@@ -340,18 +366,21 @@ public final class KijiDao implements Closeable {
             field.set(entity, mapValues);
           }
           else {
-            // Multi-version map type family
+            // Field is a map: qualifier -> time-series
             // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
             // over it to construct this MapTypeValue.
-            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
+            final NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
                 row.getCells(column.family());
-            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
-              String qualifier = e.getKey();
-              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
+              final String qualifier = entry.getKey();
+              NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
               TimeSeries<Object> timeseries = new TimeSeries<Object>();
-              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
+              for (Entry<Long, KijiCell<Object>> tentry : tCells.entrySet()) {
                 // Should only be 1 iteration.
-                timeseries.put(ee.getKey(), new TCell<Object>(ee.getKey(), ee.getValue().getData()));
+                final long timestamp = tentry.getKey();
+                timeseries.put(
+                    timestamp,
+                    new TCell<Object>(timestamp, tentry.getValue().getData()));
               }
               mapValues.put(qualifier, timeseries);
             }
@@ -359,7 +388,7 @@ public final class KijiDao implements Closeable {
             field.set(entity, mapValues);
           }
         } else { //Group family
-          if (column.maxVersions() == 1) { // Single version group family
+          if (column.maxVersions() == 1) {
             // Field represents a single value from a fully-qualified column:
             LOG.debug("Populating field '{}' from column '{}:{}'.",
                 field, column.family(), column.qualifier());
@@ -369,14 +398,13 @@ public final class KijiDao implements Closeable {
               value = value.toString();
             }
             field.set(entity, value);
-          } else { // Multi-version group family
+          } else {
             // Field represents a time-series from a fully-qualified column:
-            // TODO: Field is a time-series: implement a TimeSeries class
-            TimeSeries<Object> timeseries = new TimeSeries<Object>();
-            Iterator<KijiCell<Object>> it = row.iterator(column.family(),column.qualifier());
-            while(it.hasNext()) {
-              KijiCell<Object> cell = it.next();
-              timeseries.put(cell.getTimestamp(), new TCell<Object>(cell.getTimestamp(), cell.getData()));
+            final TimeSeries<Object> timeseries = new TimeSeries<Object>();
+            for(final KijiCell<Object> cell : row.asIterable(column.family(), column.qualifier())) {
+              timeseries.put(
+                  cell.getTimestamp(),
+                  new TCell<Object>(cell.getTimestamp(), cell.getData()));
             }
             field.set(entity, timeseries);
           }
