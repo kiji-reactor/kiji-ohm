@@ -2,16 +2,12 @@ package org.kiji.ohm.dao;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.Iterator;
-import java.util.Map;
-
-import org.apache.hadoop.hbase.HConstants;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.hadoop.hbase.HConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,28 +26,27 @@ import org.kiji.schema.KijiTableReader.KijiScannerOptions;
 import org.kiji.schema.avro.RowKeyComponent;
 import org.kiji.schema.avro.RowKeyFormat2;
 
+/**
+ * Kiji Data Access Object (DAO).
+ */
 public class KijiDao implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(KijiDao.class);
 
   /** Kiji instance. */
   private final Kiji mKiji;
 
-  private static Map<Class<? extends Annotation>, String> mAnnotationValidations;
-  static {
-    mAnnotationValidations = Maps.newHashMap();
-    mAnnotationValidations.put(KijiEntity.class, "%s is not annotated as a KijiEntity.");
-    mAnnotationValidations.put(EntityIdField.class, "%s does not contain any " +
-        "EntityId annotated fields.");
-    mAnnotationValidations.put(KijiColumn.class, "%s does not contain any " +
-        "KijiColumn annotated fields.");
-  }
-
-  public KijiDao(Kiji instance) {
-    mKiji = instance;
+  /**
+   * Initializes a new instance of Kiji Data Access Object.
+   *
+   * @param kiji Kiji instance to wrap.
+   */
+  public KijiDao(Kiji kiji) {
+    mKiji = kiji;
 
     mKiji.retain();
   }
 
+  /** {@inheritDoc} */
   @Override
   public void close() throws IOException {
     mKiji.release();
@@ -67,7 +62,7 @@ public class KijiDao implements Closeable {
   public <T> T select(Class<T> klass, EntityId entityId) throws IOException {
     return select(
         klass, entityId,
-        HConstants.OLDEST_TIMESTAMP, HConstants.LATEST_TIMESTAMP);
+        0 /*HConstants.OLDEST_TIMESTAMP*/, HConstants.LATEST_TIMESTAMP);
   }
 
   /**
@@ -80,7 +75,7 @@ public class KijiDao implements Closeable {
   public <T> Iterator<T> selectAll(Class<T> klass, KijiScannerOptions options) throws IOException {
     return selectAll(
         klass, options,
-        HConstants.OLDEST_TIMESTAMP, HConstants.LATEST_TIMESTAMP);
+        0 /*HConstants.OLDEST_TIMESTAMP*/, HConstants.LATEST_TIMESTAMP);
   }
 
   /**
@@ -168,6 +163,7 @@ public class KijiDao implements Closeable {
             "Field '%s' cannot have both @KijiColumn and @EntityIdField annotations.", field));
 
       } else if (column != null) {
+
         if (column.qualifier().isEmpty()) {
           // TODO: Must be a map-type family!
           // TODO: Field type must be a map of qualifier -> values/timeseries.
@@ -248,6 +244,7 @@ public class KijiDao implements Closeable {
               // Automatically converts CharSequence to java String if necessary:
               value = value.toString();
             }
+            field.setAccessible(true);
             field.set(entity, value);
           } else {
             // Field represents a time-series from a fully-qualified column:
@@ -262,6 +259,7 @@ public class KijiDao implements Closeable {
         // TODO: Optimize lookup of entity ID components.
         for (final RowKeyComponent rkc : rowKeyFormat.getComponents()) {
           if (rkc.getName().equals(eidField.component())) {
+            field.setAccessible(true);
             field.set(entity, eid.getComponentByIndex(index));
             found = true;
             break;

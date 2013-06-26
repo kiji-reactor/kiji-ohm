@@ -1,6 +1,5 @@
 package org.kiji.ohm;
 
-import org.apache.avro.util.Utf8;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -77,7 +76,7 @@ public class TestSimpleMapping extends KijiClientTest {
     public String login;
 
     @KijiColumn(family="info", qualifier="full_name")
-    public String fullName;
+    private String fullName;
 
     /** User birth date, in milliseconds since Epoch. */
     @KijiColumn(family="info", qualifier="birth_date")
