@@ -3,8 +3,10 @@ package org.kiji.ohm;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
-import com.google.common.base.Objects;
+import java.util.Iterator;
 
+import com.google.common.base.Objects;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.hbase.HConstants;
 import org.junit.After;
 import org.junit.Before;
@@ -107,14 +109,9 @@ public class TestSimpleMapping extends KijiClientTest {
       final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("taton"));
       LOG.debug("Decoded user: {}", user);
       assertEquals("Christophe Taton", user.fullName);
-      Integer[] expectedZips = {94131,94110};
-      Integer[] actualZips = new Integer[2];
-      int idx = 0;
-      for(TCell<Integer> cell:user.zip_codes.values()) {
-        actualZips[idx] = cell.getValue();
-        idx++;
-      }
-      assertArrayEquals(expectedZips, actualZips);
+      assertEquals(
+          Lists.newArrayList(94131, 94110),
+          Lists.newArrayList(user.zipCodes.values()));
     } finally {
       dao.close();
     }
@@ -126,7 +123,7 @@ public class TestSimpleMapping extends KijiClientTest {
     try {
       final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("amit"));
       assertEquals("Amit N", user.fullName);
-      assertEquals(user.query_counts.get("hello").intValue(), 30);
+      assertEquals(30, (int) user.queryCounts.get("hello").firstEntry().getValue());
     } finally {
       dao.close();
     }
@@ -181,10 +178,9 @@ public class TestSimpleMapping extends KijiClientTest {
 
     /** User zip code. */
     @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
-    public TimeSeries<Integer> zip_codes;
+    public TimeSeries<Integer> zipCodes;
 
     @KijiColumn(family="queries", maxVersions=1)
-    public MapTypeValue<Integer> query_counts;
+    public MapTypeValue<Integer> queryCounts;
   }
-
 }

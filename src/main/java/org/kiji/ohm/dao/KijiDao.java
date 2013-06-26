@@ -366,43 +366,46 @@ public final class KijiDao implements Closeable {
           final MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
           if (column.maxVersions() == 1) {
             // Field is a map: qualifier -> single value:
+
             // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
             // over it to construct this MapTypeValue.
+
             final NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
                 row.getCells(column.family());
             for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
               final String qualifier = entry.getKey();
-              final NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
-              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
-                mapValues.put(qualifier, new TCell<Object>(ee.getKey(), ee.getValue().getData()));
-              }
-            }
-            LOG.debug("Populating single version map field '{}'.", field);
-            field.set(entity, mapValues);
-          }
-          else {
-            // Field is a map: qualifier -> time-series
-            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
-            // over it to construct this MapTypeValue.
-            final NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
-                row.getCells(column.family());
-            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
-              final String qualifier = entry.getKey();
-              final NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
+              final NavigableMap<Long, KijiCell<Object>> cellSeries = entry.getValue();
+
+              // Build a time-series with a single data point:
               final TimeSeries<Object> timeseries = new TimeSeries<Object>();
-              for (Entry<Long, KijiCell<Object>> tentry : tCells.entrySet()) {
-                // Should only be 1 iteration.
-                final long timestamp = tentry.getKey();
-                timeseries.put(
-                    timestamp,
-                    new TCell<Object>(timestamp, tentry.getValue().getData()));
+
+              for (Entry<Long, KijiCell<Object>> tsEntry : cellSeries.entrySet()) {
+                // There should be only one iteration here, ie. one value:
+                timeseries.put(tsEntry.getKey(), tsEntry.getValue().getData());
               }
               mapValues.put(qualifier, timeseries);
             }
             LOG.debug("Populating single version map field '{}'.", field);
             field.set(entity, mapValues);
+
+          } else {
+            // Field is a map: qualifier -> time-series
+            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
+            // over it to construct this MapTypeValue.
+            final NavigableMap<String, NavigableMap<Long, Object>> cells =
+                row.getValues(column.family());
+            for (Entry<String, NavigableMap<Long, Object>> entry : cells.entrySet()) {
+              final String qualifier = entry.getKey();
+              final NavigableMap<Long, Object> tCells = entry.getValue();
+              final TimeSeries<Object> timeseries = TimeSeries.fromMap(tCells);
+              mapValues.put(qualifier, timeseries);
+            }
+            LOG.debug("Populating single version map field '{}'.", field);
+            field.set(entity, mapValues);
           }
-        } else { //Group family
+
+        } else {
+          // Group family
           if (column.maxVersions() == 1) {
             // Field represents a single value from a fully-qualified column:
             LOG.debug("Populating field '{}' from column '{}:{}'.",
@@ -418,13 +421,12 @@ public final class KijiDao implements Closeable {
               value = Defaults.defaultValue(field.getType());
             }
             field.set(entity, value);
+
           } else {
             // Field represents a time-series from a fully-qualified column:
             final TimeSeries<Object> timeseries = new TimeSeries<Object>();
             for(final KijiCell<Object> cell : row.asIterable(column.family(), column.qualifier())) {
-              timeseries.put(
-                  cell.getTimestamp(),
-                  new TCell<Object>(cell.getTimestamp(), cell.getData()));
+              timeseries.put(cell.getTimestamp(), cell.getData());
             }
             field.set(entity, timeseries);
           }
