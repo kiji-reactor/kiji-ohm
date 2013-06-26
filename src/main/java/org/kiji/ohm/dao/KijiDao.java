@@ -388,8 +388,8 @@ public final class KijiDao implements Closeable {
                 row.getCells(column.family());
             for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
               final String qualifier = entry.getKey();
-              NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
-              TimeSeries<Object> timeseries = new TimeSeries<Object>();
+              final NavigableMap<Long, KijiCell<Object>> tCells = entry.getValue();
+              final TimeSeries<Object> timeseries = new TimeSeries<Object>();
               for (Entry<Long, KijiCell<Object>> tentry : tCells.entrySet()) {
                 // Should only be 1 iteration.
                 final long timestamp = tentry.getKey();
