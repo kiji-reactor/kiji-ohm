@@ -25,6 +25,8 @@ import org.kiji.schema.KijiRowData;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiTableReader.KijiScannerOptions;
+import org.kiji.schema.avro.RowKeyComponent;
+import org.kiji.schema.avro.RowKeyFormat2;
 
 public class KijiDao implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(KijiDao.class);
@@ -60,7 +62,7 @@ public class KijiDao implements Closeable {
    * @param eid
    * @return
    */
-  public <T> T select(Class<T> targetClass, EntityId eid) throws Exception {
+  public <T> T select(Class<T> targetClass, EntityId eid) throws IOException {
     return select(targetClass,eid,0, Long.MAX_VALUE);
   }
 
@@ -85,7 +87,7 @@ public class KijiDao implements Closeable {
    * @return
    */
   public <T> T select(Class<T> klass, EntityId entityId, long startTime, long endTime)
-      throws Exception {
+      throws IOException {
 
     final KijiEntity entity = klass.getAnnotation(KijiEntity.class);
     Preconditions.checkArgument(entity != null, "Class '{}' has no @KijiEntity annotation.", klass);
@@ -93,15 +95,24 @@ public class KijiDao implements Closeable {
     // TODO: Use a pool of tables and/or table readers
     final KijiTable table = mKiji.openTable(entity.table());
     try {
+      // TODO: Support RowKeyFormat?
+      final RowKeyFormat2 rowKeyFormat =
+          (RowKeyFormat2) table.getLayout().getDesc().getKeysFormat();
+
       final KijiTableReader reader = table.openTableReader();
       try {
         final KijiDataRequestBuilder builder = KijiDataRequest.builder();
         builder.withTimeRange(startTime, endTime);
-        parseColumnRequests(klass, builder);
+        parseColumnRequests(klass, builder, rowKeyFormat);
         final KijiDataRequest dataRequest = builder.build();
 
         final KijiRowData row = reader.get(entityId, dataRequest);
-        return (T) createEntityFromRow(klass, row);
+
+        try {
+          return (T) createEntityFromRow(klass, row, rowKeyFormat);
+        } catch (IllegalAccessException iae) {
+          throw new RuntimeException(iae);
+        }
 
       } finally {
         reader.close();
@@ -134,7 +145,11 @@ public class KijiDao implements Closeable {
    * @param klass
    * @return
    */
-  private static void parseColumnRequests(Class<?> klass, KijiDataRequestBuilder builder) {
+  private static void parseColumnRequests(
+      Class<?> klass,
+      KijiDataRequestBuilder builder,
+      RowKeyFormat2 rowKeyFormat) {
+
     LOG.debug("Parsing column requests from entity '{}'.", klass);
 
     for (final Field field : klass.getDeclaredFields()) {
@@ -163,7 +178,17 @@ public class KijiDao implements Closeable {
         }
 
       } else if (eidField != null) {
-        LOG.debug("Ignoring entity ID field '{}'.", field);
+        LOG.debug("Validating entity ID field '{}' with component name '{}'.",
+            field, eidField.component());
+        boolean found = false;
+        for (final RowKeyComponent rkc : rowKeyFormat.getComponents()) {
+          if (rkc.getName().equals(eidField.component())) {
+            found = true;
+            break;
+          }
+        }
+        Preconditions.checkArgument(found, "Field '{}' maps to unknown entity ID component '{}'.",
+            field, eidField.component());
 
       } else {
         LOG.debug("Ignoring field '{}' with no annotation.", field);
@@ -177,14 +202,14 @@ public class KijiDao implements Closeable {
    * @param klass
    * @return
    */
-  private static <T> T createEntityFromRow(Class<T> klass, KijiRowData row)
-      throws
-          IllegalAccessException,
-          InstantiationException,
-          IOException {
+  private static <T> T createEntityFromRow(
+      Class<T> klass,
+      KijiRowData row,
+      RowKeyFormat2 rowKeyFormat)
+      throws IOException, IllegalAccessException {
 
     LOG.debug("Creating entity '{}' from row with ID '{}'.", klass, row.getEntityId());
-    final T entity = klass.newInstance();
+    final T entity = newInstance(klass);
     final EntityId eid = row.getEntityId();
 
     for (final Field field : klass.getDeclaredFields()) {
@@ -212,8 +237,19 @@ public class KijiDao implements Closeable {
         }
 
       } else if (eidField != null) {
-        // TODO: Field is an entity ID
-        throw new NotImplementedException();
+        boolean found = false;
+        int index = 0;
+        // TODO: Optimize lookup of entity ID components.
+        for (final RowKeyComponent rkc : rowKeyFormat.getComponents()) {
+          if (rkc.getName().equals(eidField.component())) {
+            field.set(entity, eid.getComponentByIndex(index));
+            found = true;
+            break;
+          } else {
+            index += 1;
+          }
+          Preconditions.checkState(found);
+        }
 
       } else {
         LOG.debug("Ignoring field '{}' with no annotation.", field);
@@ -221,5 +257,13 @@ public class KijiDao implements Closeable {
     }
 
     return entity;
+  }
+
+  private static <T> T newInstance(Class<T> klass) throws IllegalAccessException {
+    try {
+      return klass.newInstance();
+    } catch (InstantiationException ie) {
+      throw new RuntimeException(ie);
+    }
   }
 }
