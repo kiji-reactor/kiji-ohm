@@ -129,8 +129,22 @@ public final class KijiDao implements Closeable {
    */
   public <T> T select(Class<T> klass, EntityId entityId, long startTime, long endTime)
       throws IOException {
-
     final EntitySpec<T> spec = getEntitySpec(klass);
+    final T entity = spec.newEntity();
+    return populateFromRow(spec, entity, entityId, startTime, endTime);
+  }
+
+  public <T> T populateFromRow(T entity, EntityId entityId, long startTime, long endTime)
+      throws IOException {
+    @SuppressWarnings("unchecked")
+    final Class<T> klass = (Class<T>) entity.getClass();
+    final EntitySpec<T> spec = getEntitySpec(klass);
+    return populateFromRow(spec, entity, entityId, startTime, endTime);
+  }
+
+  private <T> T populateFromRow(
+      EntitySpec<T> spec, T entity, EntityId entityId, long startTime, long endTime)
+      throws IOException {
 
     // TODO: Use a pool of tables and/or table readers
     final KijiTable table = mKiji.openTable(spec.getTableName());
@@ -145,7 +159,6 @@ public final class KijiDao implements Closeable {
         final KijiRowData row = reader.get(entityId, dataRequest);
 
         try {
-          final T entity = spec.newEntity();
           return spec.populateEntityFromRow(entity, row);
         } catch (IllegalAccessException iae) {
           throw new RuntimeException(iae);
@@ -424,11 +437,13 @@ public final class KijiDao implements Closeable {
       return entity;
     }
 
-    private T newEntity() throws IllegalAccessException {
+    private T newEntity() {
       try {
         return mClass.newInstance();
       } catch (InstantiationException ie) {
         throw new RuntimeException(ie);
+      } catch (IllegalAccessException iae) {
+        throw new RuntimeException(iae);
       }
     }
   }
