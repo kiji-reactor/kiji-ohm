@@ -16,6 +16,7 @@ import org.kiji.ohm.annotations.EntityIdField;
 import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
 import org.kiji.ohm.dao.KijiDao;
+import org.kiji.ohm.dao.MapTypeValue;
 import org.kiji.ohm.dao.TCell;
 import org.kiji.ohm.dao.TimeSeries;
 import org.kiji.schema.Kiji;
@@ -52,6 +53,15 @@ public class TestSimpleMapping extends KijiClientTest {
             .withRow("missing_cells")
                 .withFamily("info")
                     .withQualifier("login").withValue("missing_cells")
+             .withRow("amit")
+             .withFamily("info")
+               .withQualifier("login").withValue("amit")
+               .withQualifier("full_name").withValue("Amit N")
+             .withFamily("queries")
+               .withQualifier("hello").withValue(1L,20)
+               .withQualifier("hello").withValue(2L,30)
+               .withQualifier("world").withValue(1L,20)
+               .withQualifier("world").withValue(1L,20)
         .build();
     mTable = mKiji.openTable("user_table");
   }
@@ -109,6 +119,18 @@ public class TestSimpleMapping extends KijiClientTest {
       dao.close();
     }
   }
+
+  @Test
+  public void testMultipleMapVersions() throws Exception {
+    final KijiDao dao = new KijiDao(mKiji);
+    try {
+      final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("amit"));
+      assertEquals("Amit N", user.fullName);
+      assertEquals(user.query_counts.get("hello").intValue(), 30);
+    } finally {
+      dao.close();
+    }
+  }
   // -----------------------------------------------------------------------------------------------
 
   @KijiEntity(table="user_table")
@@ -158,8 +180,11 @@ public class TestSimpleMapping extends KijiClientTest {
     public Long birthDate;
 
     /** User zip code. */
-    // TODO: Implement time-series
     @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
     public TimeSeries<Integer> zip_codes;
+
+    @KijiColumn(family="queries", maxVersions=1)
+    public MapTypeValue<Integer> query_counts;
   }
+
 }

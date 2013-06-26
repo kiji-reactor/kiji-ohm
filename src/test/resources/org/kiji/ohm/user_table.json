@@ -46,7 +46,16 @@
         name: "zip_code",
         column_schema: {type: "INLINE", value: '"int"'}
       } ]
-    } ]
+    },
+     {
+        "name": "queries",
+        "description": "Some string map family",
+      "map_schema" : {
+        type : "INLINE",
+        value : '"int"'
+      }
+      }
+    ]
   } ],
   version: "layout-1.1"
 }
