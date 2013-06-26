@@ -197,10 +197,10 @@ public class KijiDao implements Closeable {
   }
 
   /**
-   * Extracts a KijiDataRequest from an annotated entity class.
+   * Creates an entity object from a KijiRowData.
    *
-   * @param klass
-   * @return
+   * @param klass Class of the entity object to instantiate and populate.
+   * @return a new populated entity object.
    */
   private static <T> T createEntityFromRow(
       Class<T> klass,
@@ -229,7 +229,12 @@ public class KijiDao implements Closeable {
           if (column.maxVersions() == 1) {
             LOG.debug("Populating field '{}' from column '{}:{}'.",
                 field, column.family(), column.qualifier());
-            field.set(entity, row.getMostRecentValue(column.family(), column.qualifier()));
+            Object value = row.getMostRecentValue(column.family(), column.qualifier());
+            if (field.getType() == String.class) {
+              // Automatically converts CharSequence to java String if necessary:
+              value = value.toString();
+            }
+            field.set(entity, value);
           } else {
             // TODO: Field is a time-series: implement a TimeSeries class
             throw new NotImplementedException();

@@ -1,7 +1,6 @@
 package org.kiji.ohm;
 
-import org.apache.hadoop.hbase.HConstants;
-
+import org.apache.avro.util.Utf8;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -60,6 +59,7 @@ public class TestSimpleMapping extends KijiClientTest {
     final KijiDao dao = new KijiDao(mKiji);
     try {
       final User user = dao.select(User.class, mTable.getEntityId("taton"));
+      LOG.info("User: {}", user);
 
     } finally {
       dao.close();
@@ -84,7 +84,8 @@ public class TestSimpleMapping extends KijiClientTest {
     public Long birthDate;
 
     /** User zip code. */
-    @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
-    public int zipCode;
+    // TODO: Implement time-series
+    // @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
+    // public int zipCode;
   }
 }
