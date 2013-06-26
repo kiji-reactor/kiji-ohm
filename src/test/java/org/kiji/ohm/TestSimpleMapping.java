@@ -1,7 +1,11 @@
 package org.kiji.ohm;
 
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+
 import com.google.common.base.Objects;
 
+import org.apache.hadoop.hbase.HConstants;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -12,6 +16,8 @@ import org.kiji.ohm.annotations.EntityIdField;
 import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
 import org.kiji.ohm.dao.KijiDao;
+import org.kiji.ohm.dao.TCell;
+import org.kiji.ohm.dao.TimeSeries;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiClientTest;
 import org.kiji.schema.KijiTable;
@@ -60,13 +66,31 @@ public class TestSimpleMapping extends KijiClientTest {
     final KijiDao dao = new KijiDao(mKiji);
     try {
       final User user = dao.select(User.class, mTable.getEntityId("taton"));
-      LOG.info("User: {}", user);
-
+      assertEquals("Christophe Taton", user.fullName);
+      assertEquals(94131, user.zipCode);
     } finally {
       dao.close();
     }
   }
 
+  @Test
+  public void testMultipleGroupVersions() throws Exception {
+    final KijiDao dao = new KijiDao(mKiji);
+    try {
+      final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("taton"));
+      assertEquals("Christophe Taton", user.fullName);
+      Integer[] expectedZips = {94131,94110};
+      Integer[] actualZips = new Integer[2];
+      int idx = 0;
+      for(TCell<Integer> cell:user.zip_codes.values()) {
+        actualZips[idx] = cell.getValue();
+        idx++;
+      }
+      assertArrayEquals(expectedZips, actualZips);
+    } finally {
+      dao.close();
+    }
+  }
   // -----------------------------------------------------------------------------------------------
 
   @KijiEntity(table="user_table")
@@ -85,9 +109,8 @@ public class TestSimpleMapping extends KijiClientTest {
     public Long birthDate;
 
     /** User zip code. */
-    // TODO: Implement time-series
-    // @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
-    // public int zipCode;
+    @KijiColumn(family="info", qualifier="zip_code", maxVersions=1)
+    public int zipCode;
 
     /** {@inheritDoc} */
     @Override
@@ -99,5 +122,26 @@ public class TestSimpleMapping extends KijiClientTest {
           .add("birthDate", birthDate)
           .toString();
     }
+  }
+
+  @KijiEntity(table="user_table")
+  public static class UserMultiVersion {
+    @EntityIdField(component="login")
+    public String eidLogin;
+
+    @KijiColumn(family="info", qualifier="login")
+    public String login;
+
+    @KijiColumn(family="info", qualifier="full_name")
+    private String fullName;
+
+    /** User birth date, in milliseconds since Epoch. */
+    @KijiColumn(family="info", qualifier="birth_date")
+    public Long birthDate;
+
+    /** User zip code. */
+    // TODO: Implement time-series
+    @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
+    public TimeSeries<Integer> zip_codes;
   }
 }
