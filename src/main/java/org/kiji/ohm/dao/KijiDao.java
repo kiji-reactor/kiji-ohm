@@ -11,6 +11,7 @@ import java.util.NavigableMap;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -34,6 +35,9 @@ import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiTableReader.KijiScannerOptions;
 import org.kiji.schema.avro.RowKeyComponent;
 import org.kiji.schema.avro.RowKeyFormat2;
+import org.kiji.schema.layout.KijiTableLayout;
+import org.kiji.schema.layout.KijiTableLayout.LocalityGroupLayout.FamilyLayout;
+import org.kiji.schema.layout.KijiTableLayout.LocalityGroupLayout.FamilyLayout.ColumnLayout;
 
 /**
  * Kiji Data Access Object (DAO).
@@ -66,14 +70,14 @@ public final class KijiDao implements Closeable {
 
   // -----------------------------------------------------------------------------------------------
 
-  private <T> EntitySpec<T> getEntitySpec(Class<T> klass) {
+  private <T> EntitySpec<T> getEntitySpec(Class<T> klass) throws IOException {
     synchronized(mEntitySpec) {
       @SuppressWarnings("unchecked")
       final EntitySpec<T> spec = (EntitySpec<T>) mEntitySpec.get(klass);
       if (spec != null) {
         return spec;
       }
-      final EntitySpec<T> newSpec = new EntitySpec<T>(klass);
+      final EntitySpec<T> newSpec = new EntitySpec<T>(klass, mKiji);
       mEntitySpec.put(klass, newSpec);
       return newSpec;
     }
@@ -297,16 +301,15 @@ public final class KijiDao implements Closeable {
 
     private final String mTableName;
 
-    /** Fields populated from a Kiji row (from either a column or the entity ID). */
-    private final ImmutableList<Field> mFields;
-
     /** Fields populated from the row columns. */
     private final ImmutableList<Field> mColumnFields;
 
     /** Fields populated from the row entity ID components. */
     private final ImmutableList<Field> mEntityIdFields;
 
-    public EntitySpec(Class<T> klass) {
+    private final ImmutableMap<String, RowKeyComponent> mRowKeyComponents;
+
+    public EntitySpec(Class<T> klass, Kiji kiji) throws IOException {
       mClass = klass;
 
       final KijiEntity entity = klass.getAnnotation(KijiEntity.class);
@@ -314,49 +317,80 @@ public final class KijiDao implements Closeable {
           "Class '{}' has no @KijiEntity annotation.", klass);
       mTableName = entity.table();
 
-      final List<Field> fields = Lists.newArrayList();
-      final List<Field> columnFields = Lists.newArrayList();
-      final List<Field> entityIdFields = Lists.newArrayList();
+      final KijiTable table = kiji.openTable(mTableName);
+      try {
+        final KijiTableLayout layout = table.getLayout();
+        final RowKeyFormat2 rowKeyFormat = (RowKeyFormat2) layout.getDesc().getKeysFormat();
 
-      for (final Field field : mClass.getDeclaredFields()) {
-        final KijiColumn column = field.getAnnotation(KijiColumn.class);
-        final EntityIdField eidField = field.getAnnotation(EntityIdField.class);
-
-        if ((column != null) && (eidField != null)) {
-          throw new IllegalArgumentException(String.format(
-              "Field '%s' cannot have both @KijiColumn and @EntityIdField annotations.", field));
-
-        } else if (column != null) {
-          LOG.debug("Validating column field '{}'.", field);
-          field.setAccessible(true);
-          fields.add(field);
-          columnFields.add(field);
-
-        } else if (eidField != null) {
-          LOG.debug("Validating entity ID field '{}'.", field);
-          field.setAccessible(true);
-          fields.add(field);
-          entityIdFields.add(field);
-
-//          // Validate the entity ID specification:
-//          boolean found = false;
-//          for (final RowKeyComponent rkc : rowKeyFormat.getComponents()) {
-//            if (rkc.getName().equals(eidField.component())) {
-//              found = true;
-//              break;
-//            }
-//          }
-//          Preconditions.checkArgument(found, "Field '{}' maps to unknown entity ID component '{}'.",
-//              field, eidField.component());
-
-        } else {
-          LOG.debug("Ignoring field '{}' with no annotation.", field);
+        final Map<String, RowKeyComponent> rkComponents = Maps.newHashMap();
+        for (RowKeyComponent rkc : rowKeyFormat.getComponents()) {
+          rkComponents.put(rkc.getName(), rkc);
         }
-      }
+        mRowKeyComponents = ImmutableMap.copyOf(rkComponents);
 
-      mFields = ImmutableList.copyOf(fields);
-      mColumnFields = ImmutableList.copyOf(columnFields);
-      mEntityIdFields = ImmutableList.copyOf(entityIdFields);
+        // --------------------------------------------------------------------
+        // Parse fields with annotations from the entity class:
+
+        final List<Field> columnFields = Lists.newArrayList();
+        final List<Field> entityIdFields = Lists.newArrayList();
+
+        for (final Field field : mClass.getDeclaredFields()) {
+          final KijiColumn column = field.getAnnotation(KijiColumn.class);
+          final EntityIdField eidField = field.getAnnotation(EntityIdField.class);
+
+          if ((column != null) && (eidField != null)) {
+            throw new IllegalArgumentException(String.format(
+                "Field '%s' cannot have both @KijiColumn and @EntityIdField annotations.", field));
+
+          } else if (column != null) {
+            LOG.debug("Validating column field '{}'.", field);
+            field.setAccessible(true);
+            columnFields.add(field);
+
+            final FamilyLayout flayout = layout.getFamilyMap().get(column.family());
+            Preconditions.checkArgument(flayout != null,
+                "Field '%s' maps to non-existing family '%s' from table '%s'.",
+                field, column.family(), mTableName);
+
+            if (column.qualifier().isEmpty()) {
+              // Request for a map-type family:
+              Preconditions.checkArgument(flayout.isMapType(),
+                  "Field '%s' maps to family '%s' from table '%s' which is not a map-type family.",
+                  field, column.family(), mTableName);
+
+              // TODO: Validate types
+
+            } else {
+              // Request for a fully-qualified column:
+              final ColumnLayout clayout = flayout.getColumnMap().get(column.qualifier());
+              Preconditions.checkArgument(flayout != null,
+                  "Field '%s' maps to non-existing column '%s:%s' from table '%s'.",
+                  field, column.family(), column.qualifier(), mTableName);
+
+              // TODO: Validate types
+            }
+
+          } else if (eidField != null) {
+            LOG.debug("Validating entity ID field '{}'.", field);
+            field.setAccessible(true);
+            entityIdFields.add(field);
+
+            final RowKeyComponent rkc = mRowKeyComponents.get(eidField.component());
+            Preconditions.checkArgument(rkc != null,
+                "Field '%s' maps to unknown entity ID component '%s'.",
+                field, eidField.component());
+
+          } else {
+            LOG.debug("Ignoring field '{}' with no annotation.", field);
+          }
+        }
+
+        mColumnFields = ImmutableList.copyOf(columnFields);
+        mEntityIdFields = ImmutableList.copyOf(entityIdFields);
+
+      } finally {
+        table.release();
+      }
     }
 
     public Class<T> getEntityClass() {

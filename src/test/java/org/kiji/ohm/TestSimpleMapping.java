@@ -1,5 +1,7 @@
 package org.kiji.ohm;
 
+import com.google.common.base.Objects;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -86,5 +88,16 @@ public class TestSimpleMapping extends KijiClientTest {
     // TODO: Implement time-series
     // @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
     // public int zipCode;
+
+    /** {@inheritDoc} */
+    @Override
+    public String toString() {
+      return Objects.toStringHelper(this)
+          .add("eidLogin", eidLogin)
+          .add("login", login)
+          .add("fullName", fullName)
+          .add("birthDate", birthDate)
+          .toString();
+    }
   }
 }
