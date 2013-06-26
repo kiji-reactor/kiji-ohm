@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.kiji.ohm.annotations.EntityIdField;
 import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
+import org.kiji.ohm.dao.KijiDao;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiClientTest;
 import org.kiji.schema.KijiTable;
@@ -22,16 +23,20 @@ public class TestSimpleMapping extends KijiClientTest {
 
   private static final String USER_TABLE_LAYOUT = "org/kiji/ohm/user_table.json";
 
+  /** Test Kiji instance. Not owned: do not release! */
+  private Kiji mKiji;
+
+  /** Test Kiji table. Owned. */
   private KijiTable mTable;
 
   // -----------------------------------------------------------------------------------------------
 
   @Before
   public final void setup() throws Exception {
-    final Kiji kiji = new InstanceBuilder(getKiji())
+    mKiji = new InstanceBuilder(getKiji())
         .withTable(KijiTableLayouts.getLayout(USER_TABLE_LAYOUT))
         .build();
-    mTable = kiji.openTable("user_table");
+    mTable = mKiji.openTable("user_table");
   }
 
   @After
@@ -44,13 +49,14 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testSimpleMapping() throws Exception {
+    final KijiDao dao = new KijiDao(mKiji);
   }
 
   // -----------------------------------------------------------------------------------------------
 
   @KijiEntity(table="user_table")
   public static class User {
-    @EntityIdField(component=1)
+    @EntityIdField(component="login")
     public String eidLogin;
 
     @KijiColumn(family="info", qualifier="login")
