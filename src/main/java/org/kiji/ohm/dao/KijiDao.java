@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
 
+import com.google.common.base.Defaults;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -409,6 +411,11 @@ public final class KijiDao implements Closeable {
             if (field.getType() == String.class && value != null) {
               // Automatically converts CharSequence to java String if necessary:
               value = value.toString();
+            }
+
+            // If there is no cell for a field with a primitive type, use the default value:
+            if ((null == value) && field.getType().isPrimitive()) {
+              value = Defaults.defaultValue(field.getType());
             }
             field.set(entity, value);
           } else {

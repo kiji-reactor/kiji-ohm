@@ -49,6 +49,9 @@ public class TestSimpleMapping extends KijiClientTest {
                     .withQualifier("zip_code")
                         .withValue(1L, 94110)
                         .withValue(2L, 94131)
+            .withRow("missing_cells")
+                .withFamily("info")
+                    .withQualifier("login").withValue("missing_cells")
         .build();
     mTable = mKiji.openTable("user_table");
   }
@@ -69,6 +72,19 @@ public class TestSimpleMapping extends KijiClientTest {
       LOG.debug("Decoded user: {}", user);
       assertEquals("Christophe Taton", user.fullName);
       assertEquals(94131, user.zipCode);
+    } finally {
+      dao.close();
+    }
+  }
+
+  @Test
+  public void testMissingCells() throws Exception {
+    final KijiDao dao = new KijiDao(mKiji);
+    try {
+      final User user = dao.select(User.class, mTable.getEntityId("missing_cells"));
+      LOG.debug("Decoded user: {}", user);
+      assertEquals(null, user.fullName);
+      assertEquals(0, user.zipCode);
     } finally {
       dao.close();
     }
