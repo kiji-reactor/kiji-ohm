@@ -212,8 +212,7 @@ public final class KijiDao implements Closeable {
             }
             LOG.debug("Populating single version map field '{}'.", field);
           }
-          else //Multi-version map type family
-          {
+          else { //Multi-version map type family
               // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
               // over it to construct this MapTypeValue.
               NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells = row.getCells(column
@@ -230,24 +229,29 @@ public final class KijiDao implements Closeable {
               LOG.debug("Populating single version map field '{}'.", field);
               field.set(entity, mapValues);
           }
-        } else {
-          if (column.maxVersions() == 1) {
+        } else { //Group family
+          if (column.maxVersions() == 1) { // Single version group family
             // Field represents a single value from a fully-qualified column:
             LOG.debug("Populating field '{}' from column '{}:{}'.",
                 field, column.family(), column.qualifier());
             Object value = row.getMostRecentValue(column.family(), column.qualifier());
-            if (field.getType() == String.class) {
+            if (field.getType() == String.class && value != null) {
               // Automatically converts CharSequence to java String if necessary:
-              if (value != null) {
-                value = value.toString();
-              }
+              value = value.toString();
             }
             field.setAccessible(true);
             field.set(entity, value);
-          } else {
+          } else { // Multi-version group family
             // Field represents a time-series from a fully-qualified column:
             // TODO: Field is a time-series: implement a TimeSeries class
-            throw new NotImplementedException();
+            TimeSeries<Object> timeseries = new TimeSeries<Object>();
+            Iterator<KijiCell<Object>> it = row.iterator(column.family(),column.qualifier());
+            while(it.hasNext()) {
+              KijiCell<Object> cell = it.next();
+              timeseries.put(cell.getTimestamp(), new TCell<Object>(cell.getTimestamp(), cell.getData()));
+            }
+            field.setAccessible(true);
+            field.set(entity, timeseries);
           }
         }
 
