@@ -222,11 +222,18 @@ public class KijiDao implements Closeable {
 
       } else if (column != null) {
         if (column.qualifier().isEmpty()) {
-          LOG.debug("Populating field '{}'.", field);
-          throw new NotImplementedException();
+          LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
+          if (column.maxVersions() == 1) {
+            // Field is a map: qualifier -> single value:
+            throw new NotImplementedException();
+          } else {
+            // Field is a map: qualifier -> time-series:
+            throw new NotImplementedException();
+          }
 
         } else {
           if (column.maxVersions() == 1) {
+            // Field represents a single value from a fully-qualified column:
             LOG.debug("Populating field '{}' from column '{}:{}'.",
                 field, column.family(), column.qualifier());
             Object value = row.getMostRecentValue(column.family(), column.qualifier());
@@ -236,6 +243,7 @@ public class KijiDao implements Closeable {
             }
             field.set(entity, value);
           } else {
+            // Field represents a time-series from a fully-qualified column:
             // TODO: Field is a time-series: implement a TimeSeries class
             throw new NotImplementedException();
           }
