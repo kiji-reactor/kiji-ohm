@@ -7,6 +7,8 @@ import java.lang.reflect.Field;
 import java.util.Iterator;
 import java.util.Map;
 
+import org.apache.hadoop.hbase.HConstants;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.NotImplementedException;
@@ -58,23 +60,27 @@ public class KijiDao implements Closeable {
   /**
    * Shortcut for {@link #select(Class, EntityId, long, long).
    *
-   * @param targetClass
-   * @param eid
+   * @param klass
+   * @param entityId
    * @return
    */
-  public <T> T select(Class<T> targetClass, EntityId eid) throws IOException {
-    return select(targetClass,eid,0, Long.MAX_VALUE);
+  public <T> T select(Class<T> klass, EntityId entityId) throws IOException {
+    return select(
+        klass, entityId,
+        HConstants.OLDEST_TIMESTAMP, HConstants.LATEST_TIMESTAMP);
   }
 
   /**
    * Shortcut for {@link #selectAll(Class, KijiScannerOptions, long, long).
    *
-   * @param targetClass
+   * @param klass
    * @param options
    * @return
    */
-  public <T> Iterator<T> selectAll(Class<T> targetClass, KijiScannerOptions options) {
-    return selectAll(targetClass, options, 0, Long.MAX_VALUE);
+  public <T> Iterator<T> selectAll(Class<T> klass, KijiScannerOptions options) throws IOException {
+    return selectAll(
+        klass, options,
+        HConstants.OLDEST_TIMESTAMP, HConstants.LATEST_TIMESTAMP);
   }
 
   /**
@@ -125,17 +131,18 @@ public class KijiDao implements Closeable {
   /**
    * <p> Equivalent of a Kiji scan. </p>
    *
-   * @param targetClass
+   * @param klass
    * @param options
    * @param startTime
    * @param endTime
    * @return
    */
   public <T> Iterator<T> selectAll(
-      Class<T> targetClass,
+      Class<T> klass,
       KijiScannerOptions options,
       long startTime,
-      long endTime) {
+      long endTime)
+      throws IOException {
     throw new NotImplementedException();
   }
 
