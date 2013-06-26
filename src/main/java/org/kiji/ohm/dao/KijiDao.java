@@ -4,8 +4,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Iterator;
+import java.util.Map.Entry;
+import java.util.NavigableMap;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.hadoop.hbase.HConstants;
 import org.slf4j.Logger;
@@ -16,6 +19,7 @@ import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
 import org.kiji.schema.EntityId;
 import org.kiji.schema.Kiji;
+import org.kiji.schema.KijiCell;
 import org.kiji.schema.KijiDataRequest;
 import org.kiji.schema.KijiDataRequestBuilder;
 import org.kiji.schema.KijiDataRequestBuilder.ColumnsDef;
@@ -167,7 +171,6 @@ public class KijiDao implements Closeable {
         if (column.qualifier().isEmpty()) {
           // TODO: Must be a map-type family!
           // TODO: Field type must be a map of qualifier -> values/timeseries.
-
           LOG.debug("Requesting family '{}' for field '{}'.", column.family(), field);
           builder.addColumns(ColumnsDef.create()
               .withMaxVersions(column.maxVersions())
@@ -226,15 +229,42 @@ public class KijiDao implements Closeable {
       } else if (column != null) {
         if (column.qualifier().isEmpty()) {
           LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
+          MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
           if (column.maxVersions() == 1) {
             // Field is a map: qualifier -> single value:
-            throw new NotImplementedException();
-          } else {
-            // Field is a map: qualifier -> time-series:
-            throw new NotImplementedException();
+            // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
+            // over it to construct this MapTypeValue.
+            NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells = row.getCells(column
+                .family());
+            for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
+              String qualifier = e.getKey();
+              NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+              for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
+                mapValues.put(qualifier, new TCell<Object>(ee.getKey(), ee.getValue().getData()));
+              }
+            }
+            LOG.debug("Populating single version map field '{}'.", field);
           }
-
-        } else {
+          else //Multi-version map type family
+          {
+              // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
+              // over it to construct this MapTypeValue.
+              NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells = row.getCells(column
+                  .family());
+              for (Entry<String, NavigableMap<Long, KijiCell<Object>>> e : cells.entrySet()) {
+                String qualifier = e.getKey();
+                NavigableMap<Long, KijiCell<Object>> tCells = e.getValue();
+                TimeSeries<Object> timeseries = new TimeSeries<Object>();
+                for (Entry<Long, KijiCell<Object>> ee : tCells.entrySet()) {
+                  timeseries.put(ee.getKey(), new TCell<Object>(ee.getKey(), ee.getValue().getData()));
+                }
+                mapValues.put(qualifier, timeseries);
+              }
+              LOG.debug("Populating single version map field '{}'.", field);
+              field.set(entity, mapValues);
+          }
+          field.set(entity, mapValues);
+        } else { //multi-version group type family.
           if (column.maxVersions() == 1) {
             // Field represents a single value from a fully-qualified column:
             LOG.debug("Populating field '{}' from column '{}:{}'.",
