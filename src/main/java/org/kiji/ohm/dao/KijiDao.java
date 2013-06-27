@@ -35,6 +35,7 @@ import org.kiji.schema.KijiRowData;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiTableReader.KijiScannerOptions;
+import org.kiji.schema.MapFamilyVersionIterator;
 import org.kiji.schema.avro.RowKeyComponent;
 import org.kiji.schema.avro.RowKeyFormat2;
 import org.kiji.schema.layout.KijiTableLayout;
@@ -276,7 +277,15 @@ public final class KijiDao implements Closeable {
                   "Field '%s' maps to family '%s' from table '%s' which is not a map-type family.",
                   field, column.family(), mTableName);
 
-              // TODO: Validate types
+              // Validate field type:
+              if (column.pageSize() > 0) {
+                Preconditions.checkArgument(
+                    MapFamilyVersionIterator.class.isAssignableFrom(field.getType()),
+                    "Fields mapped to map-type family with paging enabled must be "
+                    + "MapFamilyVersionIterator, got '{}'.", field.getType());
+              } else {
+                // TODO Validate type when no paging enabled on map-type family.
+              }
 
             } else {
               // Request for a fully-qualified column:
@@ -285,7 +294,15 @@ public final class KijiDao implements Closeable {
                   "Field '%s' maps to non-existing column '%s:%s' from table '%s'.",
                   field, column.family(), column.qualifier(), mTableName);
 
-              // TODO: Validate types
+              // Validate field type:
+              if (column.pageSize() > 0) {
+                Preconditions.checkArgument(
+                    ColumnVersionIterator.class.isAssignableFrom(field.getType()),
+                    "Fields mapped to column with paging enabled must be "
+                    + "ColumnVersionIterator, got '{}'.", field.getType());
+              } else {
+                // TODO Validate type when no paging enabled on the column.
+              }
             }
 
           } else if (eidField != null) {
@@ -399,7 +416,7 @@ public final class KijiDao implements Closeable {
         // Field represents a time-series from a fully-qualified column:
         if (column.pageSize() > 0) {
           final ColumnVersionIterator<?> iterator =
-              new ColumnVersionIterator<T>(
+              new ColumnVersionIterator<Object>(
                   row, column.family(), column.qualifier(), column.pageSize());
           field.set(entity, iterator);
         } else {
@@ -419,7 +436,17 @@ public final class KijiDao implements Closeable {
       LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
 
       final MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
-      if (column.maxVersions() == 1) {
+
+      if (column.pageSize() > 0) {
+        // Field is a closeable iterator of map-family entries (qualifier, timestamp, value).
+        LOG.debug("Populating field '{}' from paging-enabled map-type family '{}'.",
+            field, column.family());
+        final MapFamilyVersionIterator<?> iterator =
+            new MapFamilyVersionIterator<Object>(
+                row, column.family(), column.pageSize(), column.pageSize());
+        field.set(entity, iterator);
+
+      } else if (column.maxVersions() == 1) {
         // Field is a map: qualifier -> single value:
 
         LOG.debug("Populating single version map field '{}'.", field);
