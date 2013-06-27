@@ -1,12 +1,10 @@
 package org.kiji.ohm;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-
-import java.util.Iterator;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
+
 import org.apache.hadoop.hbase.HConstants;
 import org.junit.After;
 import org.junit.Before;
@@ -19,7 +17,6 @@ import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
 import org.kiji.ohm.dao.KijiDao;
 import org.kiji.ohm.dao.MapTypeValue;
-import org.kiji.ohm.dao.TCell;
 import org.kiji.ohm.dao.TimeSeries;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiClientTest;
