@@ -2,9 +2,10 @@ package org.kiji.ohm;
 
 import static org.junit.Assert.assertEquals;
 
+import java.util.Map;
+
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
-
 import org.apache.hadoop.hbase.HConstants;
 import org.junit.After;
 import org.junit.Before;
@@ -15,12 +16,15 @@ import org.slf4j.LoggerFactory;
 import org.kiji.ohm.annotations.EntityIdField;
 import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
+import org.kiji.ohm.dao.ForHelper;
 import org.kiji.ohm.dao.KijiDao;
 import org.kiji.ohm.dao.MapTypeValue;
 import org.kiji.ohm.dao.TimeSeries;
+import org.kiji.schema.ColumnVersionIterator;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiClientTest;
 import org.kiji.schema.KijiTable;
+import org.kiji.schema.MapFamilyVersionIterator;
 import org.kiji.schema.layout.KijiTableLayouts;
 import org.kiji.schema.util.InstanceBuilder;
 
@@ -34,6 +38,9 @@ public class TestSimpleMapping extends KijiClientTest {
 
   /** Test Kiji table. Owned. */
   private KijiTable mTable;
+
+  /** Test Kiji mDAO. */
+  private KijiDao mDAO;
 
   // -----------------------------------------------------------------------------------------------
 
@@ -49,6 +56,7 @@ public class TestSimpleMapping extends KijiClientTest {
                     .withQualifier("zip_code")
                         .withValue(1L, 94110)
                         .withValue(2L, 94131)
+                        .withValue(3L, 12345)
             .withRow("missing_cells")
                 .withFamily("info")
                     .withQualifier("login").withValue("missing_cells")
@@ -57,11 +65,14 @@ public class TestSimpleMapping extends KijiClientTest {
                .withQualifier("login").withValue("amit")
                .withQualifier("full_name").withValue("Amit N")
              .withFamily("query_count")
-               .withQualifier("hello").withValue(1L,20)
-               .withQualifier("hello").withValue(2L,30)
-               .withQualifier("world").withValue(1L,20)
-               .withQualifier("world").withValue(1L,20)
+               .withQualifier("hello")
+                   .withValue(1L, 20)
+                   .withValue(2L, 30)
+               .withQualifier("world")
+                   .withValue(1L, 40)
+                   .withValue(2L, 50)
         .build();
+    mDAO = new KijiDao(mKiji);
     mTable = mKiji.openTable("user_table");
   }
 
@@ -69,62 +80,72 @@ public class TestSimpleMapping extends KijiClientTest {
   public final void teardown() throws Exception {
     mTable.release();
     mTable = null;
+    mDAO.close();
+    mDAO = null;
+    mKiji = null;
   }
 
   // -----------------------------------------------------------------------------------------------
 
   @Test
   public void testSimpleMapping() throws Exception {
-    final KijiDao dao = new KijiDao(mKiji);
-    try {
-      final User user = dao.select(User.class, mTable.getEntityId("taton"));
-      LOG.debug("Decoded user: {}", user);
-      assertEquals("Christophe Taton", user.fullName);
-      assertEquals(94131, user.zipCode);
-    } finally {
-      dao.close();
-    }
+    final User user = mDAO.select(User.class, mTable.getEntityId("taton"));
+    LOG.debug("Decoded user: {}", user);
+    assertEquals("Christophe Taton", user.fullName);
+    assertEquals(12345, user.zipCode);
   }
 
   @Test
   public void testMissingCells() throws Exception {
-    final KijiDao dao = new KijiDao(mKiji);
-    try {
-      final User user = dao.select(User.class, mTable.getEntityId("missing_cells"));
-      LOG.debug("Decoded user: {}", user);
-      assertEquals(null, user.fullName);
-      assertEquals(0, user.zipCode);
-    } finally {
-      dao.close();
-    }
+    final User user = mDAO.select(User.class, mTable.getEntityId("missing_cells"));
+    LOG.debug("Decoded user: {}", user);
+    assertEquals(null, user.fullName);
+    assertEquals(0, user.zipCode);
   }
 
   @Test
   public void testMultipleGroupVersions() throws Exception {
-    final KijiDao dao = new KijiDao(mKiji);
-    try {
-      final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("taton"));
-      LOG.debug("Decoded user: {}", user);
-      assertEquals("Christophe Taton", user.fullName);
-      assertEquals(
-          Lists.newArrayList(94131, 94110),
-          Lists.newArrayList(user.zipCodes.values()));
-    } finally {
-      dao.close();
-    }
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("taton"));
+    LOG.debug("Decoded user: {}", user);
+    assertEquals("Christophe Taton", user.fullName);
+    assertEquals(
+        Lists.newArrayList(12345, 94131, 94110),
+        Lists.newArrayList(user.zipCodes.values()));
   }
 
   @Test
   public void testMultipleMapVersions() throws Exception {
-    final KijiDao dao = new KijiDao(mKiji);
-    try {
-      final UserMultiVersion user = dao.select(UserMultiVersion.class, mTable.getEntityId("amit"));
-      assertEquals("Amit N", user.fullName);
-      assertEquals(30, (int) user.queryCount.get("hello").firstEntry().getValue());
-    } finally {
-      dao.close();
-    }
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("amit"));
+    assertEquals("Amit N", user.fullName);
+    assertEquals(30, (int) user.queryCount.get("hello").firstEntry().getValue());
   }
+
+  @Test
+  public void testColumnPaging() throws Exception {
+    final UserWithPaging user = mDAO.select(UserWithPaging.class, mTable.getEntityId("taton"));
+    int counter = 0;
+    for (Map.Entry<Long, Integer> entry : ForHelper.from(user.zipCodes)) {
+      LOG.debug("ZipCode entry: {}", entry);
+      counter += 1;
+    }
+    user.zipCodes.close();
+    user.queryCount.close();
+    assertEquals(3, counter);
+  }
+
+  @Test
+  public void testMapFamilyPaging() throws Exception {
+    final UserWithPaging user = mDAO.select(UserWithPaging.class, mTable.getEntityId("amit"));
+    int counter = 0;
+    for (MapFamilyVersionIterator.Entry<Integer> entry : ForHelper.from(user.queryCount)) {
+      LOG.debug("QueryCount entry: {}", entry);
+      counter += 1;
+    }
+    user.zipCodes.close();
+    user.queryCount.close();
+    assertEquals(4, counter);
+  }
+
   // -----------------------------------------------------------------------------------------------
 
   @KijiEntity(table="user_table")
@@ -180,4 +201,18 @@ public class TestSimpleMapping extends KijiClientTest {
     @KijiColumn(family="query_count", maxVersions=1)
     public MapTypeValue<Integer> queryCount;
   }
+
+  @KijiEntity(table="user_table")
+  public static class UserWithPaging {
+    /** User zip code. */
+    @KijiColumn(family="info", qualifier="zip_code",
+        maxVersions=HConstants.ALL_VERSIONS,
+        pageSize=2)
+    public ColumnVersionIterator<Integer> zipCodes;
+
+    @KijiColumn(family="query_count",
+        maxVersions=HConstants.ALL_VERSIONS,
+        pageSize=2)
+    public MapFamilyVersionIterator<Integer> queryCount;
+}
 }
