@@ -6,8 +6,6 @@ import java.lang.reflect.Field;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.NavigableMap;
 
 import com.google.common.base.Defaults;
 import com.google.common.base.Preconditions;
@@ -415,6 +413,8 @@ public final class KijiDao implements Closeable {
         LOG.debug("Populating field '{}' from column '{}:{}'.",
             field, column.family(), column.qualifier());
         KijiCell<?> cell = row.getMostRecentCell(column.family(), column.qualifier());
+        if(cell == null)
+          return;
         Object value = cell.getData();
 
         if(field.getType() == KijiCell.class) {
@@ -460,8 +460,6 @@ public final class KijiDao implements Closeable {
 
       LOG.debug("Populating field '{}' from map-type family '{}'.", field, column.family());
 
-      final MapTypeValue<Object> mapValues = new MapTypeValue<Object>();
-
       if (column.pageSize() > 0) {
         // Field is a closeable iterator of map-family entries (qualifier, timestamp, value).
         LOG.debug("Populating field '{}' from paging-enabled map-type family '{}'.",
@@ -475,40 +473,42 @@ public final class KijiDao implements Closeable {
         // Field is a map: qualifier -> single value:
 
         LOG.debug("Populating single version map field '{}'.", field);
+        Object value = null;
 
-        final NavigableMap<String, NavigableMap<Long, KijiCell<Object>>> cells =
-            row.getCells(column.family());
-        for (Entry<String, NavigableMap<Long, KijiCell<Object>>> entry : cells.entrySet()) {
-          final String qualifier = entry.getKey();
-          final NavigableMap<Long, KijiCell<Object>> cellSeries = entry.getValue();
-
-          // Build a time-series with a single data point:
-          final TimeSeries<Object> timeseries = new TimeSeries<Object>();
-
-          for (Entry<Long, KijiCell<Object>> tsEntry : cellSeries.entrySet()) {
-            // There should be only one iteration here, ie. one value:
-            timeseries.put(tsEntry.getKey(), tsEntry.getValue().getData());
-          }
-          mapValues.put(qualifier, timeseries);
+        if(field.getType() == KijiCellIterator.class) {
+          Iterator<KijiCell<Object>> it = row.iterator(column.family());
+          value = new KijiCellIterator<Object>(it);
         }
-        field.set(entity, mapValues);
+        else if(field.getType() == MapTypeCell.class) {
+          value = new MapTypeCell<Object>(row.getMostRecentCells(column.family()));
+        }
+        else if(field.getType() == MapTypeValue.class) {
+          value = new MapTypeValue<Object>(row.getMostRecentValues(column.family()));
+        }
+        field.set(entity, value);
 
       } else {
         // Field is a map: qualifier -> time-series
-        // TODO: Let's find a way to decorate the underlying NavigableMap instead of iterating
-        // over it to construct this MapTypeValue.
-        final NavigableMap<String, NavigableMap<Long, Object>> cells =
-            row.getValues(column.family());
-        for (Entry<String, NavigableMap<Long, Object>> entry : cells.entrySet()) {
-          final String qualifier = entry.getKey();
-          final NavigableMap<Long, Object> tCells = entry.getValue();
-          final TimeSeries<Object> timeseries = TimeSeries.fromMap(tCells);
-          mapValues.put(qualifier, timeseries);
-        }
         LOG.debug("Populating map field '{}'.", field);
-        field.set(entity, mapValues);
+        Object value = null;
+        if(field.getType() == KijiCellIterator.class) {
+          Iterator<KijiCell<Object>> it = row.iterator(column.family());
+          value = new KijiCellIterator<Object>(it);
+        }
+        else if(field.getType() == TSMapTypeValue.class) {
+          //TODO: ARGH. This is awful.
+          TSMapTypeValue<Object> tsValues = new TSMapTypeValue<Object>();
+          for(String s:row.getQualifiers(column.family())) {
+            final TimeSeries<Object> timeseries = new TimeSeries<Object>();
+            for(final KijiCell<Object> cell : row.asIterable(column.family(), s)) {
+              timeseries.put(cell.getTimestamp(), cell.getData());
+            }
+            tsValues.put(s, timeseries);
+          }
+          value = tsValues;
+        }
+        field.set(entity, value);
       }
-
     }
 
     /**

@@ -105,6 +105,14 @@ public class TestSimpleMapping extends KijiClientTest {
   }
 
   @Test
+  public void testMissingMapCells() throws Exception {
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("missing_cells"));
+    LOG.debug("Decoded user: {}", user);
+    assertEquals(null, user.fullName);
+    assertEquals(0, user.zipCodes.size());
+  }
+
+  @Test
   public void testMultipleGroupVersions() throws Exception {
     final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("taton"));
     LOG.debug("Decoded user: {}", user);
@@ -118,7 +126,7 @@ public class TestSimpleMapping extends KijiClientTest {
   public void testMultipleMapVersions() throws Exception {
     final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("amit"));
     assertEquals("Amit N", user.fullName);
-    assertEquals(30, (int) user.queryCount.get("hello").firstEntry().getValue());
+    assertEquals(30, (int) user.queryCount.get("hello"));
   }
 
   @Test
