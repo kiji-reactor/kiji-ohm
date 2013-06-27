@@ -18,11 +18,13 @@ import org.kiji.ohm.annotations.EntityIdField;
 import org.kiji.ohm.annotations.KijiColumn;
 import org.kiji.ohm.annotations.KijiEntity;
 import org.kiji.ohm.dao.ForHelper;
+import org.kiji.ohm.dao.KijiCellIterator;
 import org.kiji.ohm.dao.KijiDao;
 import org.kiji.ohm.dao.MapTypeValue;
 import org.kiji.ohm.dao.TimeSeries;
 import org.kiji.schema.ColumnVersionIterator;
 import org.kiji.schema.Kiji;
+import org.kiji.schema.KijiCell;
 import org.kiji.schema.KijiClientTest;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.MapFamilyVersionIterator;
@@ -127,6 +129,12 @@ public class TestSimpleMapping extends KijiClientTest {
     final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("amit"));
     assertEquals("Amit N", user.fullName);
     assertEquals(30, (int) user.queryCount.get("hello"));
+
+    final UserMultiVersion2 user2 = mDAO.select(UserMultiVersion2.class, mTable.getEntityId("amit"));
+    assertEquals("Amit N", user2.fullName);
+    KijiCell<Integer> firstCell = user2.queryCount.next();
+    assertEquals(30, (int)firstCell.getData());
+    assertEquals(2, (long)firstCell.getTimestamp());
   }
 
   @Test
@@ -207,6 +215,29 @@ public class TestSimpleMapping extends KijiClientTest {
 
     @KijiColumn(family="query_count", maxVersions=1)
     public MapTypeValue<Integer> queryCount;
+  }
+
+  @KijiEntity(table="user_table")
+  public static class UserMultiVersion2 {
+    @EntityIdField(component="login")
+    public String eidLogin;
+
+    @KijiColumn(family="info", qualifier="login")
+    public String login;
+
+    @KijiColumn(family="info", qualifier="full_name")
+    private String fullName;
+
+    /** User birth date, in milliseconds since Epoch. */
+    @KijiColumn(family="info", qualifier="birth_date")
+    public Long birthDate;
+
+    /** User zip code. */
+    @KijiColumn(family="info", qualifier="zip_code", maxVersions=HConstants.ALL_VERSIONS)
+    public TimeSeries<Integer> zipCodes;
+
+    @KijiColumn(family="query_count", maxVersions=1)
+    public KijiCellIterator<Integer> queryCount;
   }
 
   @KijiEntity(table="user_table")
