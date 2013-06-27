@@ -414,18 +414,22 @@ public final class KijiDao implements Closeable {
         // Field represents a single value from a fully-qualified column:
         LOG.debug("Populating field '{}' from column '{}:{}'.",
             field, column.family(), column.qualifier());
-        Object value = row.getMostRecentValue(column.family(), column.qualifier());
-        if (field.getType() == String.class && value != null) {
-          // Automatically converts CharSequence to java String if necessary:
-          value = value.toString();
+        KijiCell<?> cell = row.getMostRecentCell(column.family(), column.qualifier());
+        Object value = cell.getData();
+
+        if(field.getType() == KijiCell.class) {
+          value = cell;
+        }
+        else if(field.getType() == String.class && value != null) {
+            value = value.toString();
         }
 
         // If there is no cell for a field with a primitive type, use the default value:
         if ((null == value) && field.getType().isPrimitive()) {
           value = Defaults.defaultValue(field.getType());
         }
-        field.set(entity, value);
 
+        field.set(entity, value);
       } else {
         // Field represents a time-series from a fully-qualified column:
         if (column.pageSize() > 0) {
@@ -434,11 +438,18 @@ public final class KijiDao implements Closeable {
                   row, column.family(), column.qualifier(), column.pageSize());
           field.set(entity, iterator);
         } else {
-          final TimeSeries<Object> timeseries = new TimeSeries<Object>();
-          for(final KijiCell<Object> cell : row.asIterable(column.family(), column.qualifier())) {
-            timeseries.put(cell.getTimestamp(), cell.getData());
+          Object value = null;
+          if(field.getType() == KijiCellValueIterator.class) {
+            value = new KijiCellValueIterator<Object>(row.iterator(column.family(), column.qualifier()));
           }
-          field.set(entity, timeseries);
+          else if(field.getType() == TimeSeries.class) {
+            final TimeSeries<Object> timeseries = new TimeSeries<Object>();
+            for(final KijiCell<Object> cell : row.asIterable(column.family(), column.qualifier())) {
+              timeseries.put(cell.getTimestamp(), cell.getData());
+            }
+            value = timeseries;
+          }
+          field.set(entity, value);
         }
       }
     }

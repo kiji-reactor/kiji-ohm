@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
+
 import org.apache.hadoop.hbase.HConstants;
 import org.junit.After;
 import org.junit.Before;

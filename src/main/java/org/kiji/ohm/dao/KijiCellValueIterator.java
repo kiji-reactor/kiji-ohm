@@ -4,10 +4,11 @@ import java.util.Iterator;
 
 import org.kiji.schema.KijiCell;
 
-public class KijiCellIterator<V> implements Iterator<KijiCell<V>> {
+public class KijiCellValueIterator<V> implements Iterator<V> {
+
   private Iterator<KijiCell<V>> mKijiCellIterator;
 
-  public KijiCellIterator(Iterator<KijiCell<V>> kijiCellIterator) {
+  public KijiCellValueIterator(Iterator<KijiCell<V>> kijiCellIterator) {
     mKijiCellIterator = kijiCellIterator;
   }
 
@@ -18,9 +19,9 @@ public class KijiCellIterator<V> implements Iterator<KijiCell<V>> {
   }
 
   @Override
-  public KijiCell<V> next() {
+  public V next() {
     // TODO Auto-generated method stub
-    return mKijiCellIterator.next();
+    return mKijiCellIterator.next().getData();
   }
 
   @Override
@@ -28,6 +29,4 @@ public class KijiCellIterator<V> implements Iterator<KijiCell<V>> {
     // TODO Auto-generated method stub
     throw new UnsupportedOperationException();
   }
-
-
 }
