@@ -193,6 +193,20 @@ public final class KijiDao implements Closeable {
     throw new NotImplementedException();
   }
 
+  /**
+   * Closes an entity managed by the DAO.
+   *
+   * <p> This is required for entities containing active values, such as pagers. </p>
+   *
+   * @param entity Entity to release.
+   */
+  public <T> void releaseEntity(T entity) throws IOException {
+    @SuppressWarnings("unchecked")
+    final Class<T> klass = (Class<T>) entity.getClass();
+    final EntitySpec<T> spec = getEntitySpec(klass);
+    spec.releaseEntity(entity);
+  }
+
   // -----------------------------------------------------------------------------------------------
 
   /**
@@ -498,6 +512,20 @@ public final class KijiDao implements Closeable {
         throw new RuntimeException(ie);
       } catch (IllegalAccessException iae) {
         throw new RuntimeException(iae);
+      }
+    }
+
+    public void releaseEntity(T entity) throws IOException {
+      for (Field field : mColumnFields) {
+        final KijiColumn column = field.getAnnotation(KijiColumn.class);
+        if (column.pageSize() > 0) {
+          try {
+            final Closeable closeable = (Closeable) field.get(entity);
+            closeable.close();
+          } catch (IllegalAccessException iae) {
+            throw new RuntimeException(iae);
+          }
+        }
       }
     }
   }

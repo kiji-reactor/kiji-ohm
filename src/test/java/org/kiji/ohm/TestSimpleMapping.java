@@ -128,8 +128,7 @@ public class TestSimpleMapping extends KijiClientTest {
       LOG.debug("ZipCode entry: {}", entry);
       counter += 1;
     }
-    user.zipCodes.close();
-    user.queryCount.close();
+    mDAO.releaseEntity(user);
     assertEquals(3, counter);
   }
 
@@ -141,8 +140,7 @@ public class TestSimpleMapping extends KijiClientTest {
       LOG.debug("QueryCount entry: {}", entry);
       counter += 1;
     }
-    user.zipCodes.close();
-    user.queryCount.close();
+    mDAO.releaseEntity(user);
     assertEquals(4, counter);
   }
 
