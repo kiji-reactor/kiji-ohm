@@ -92,7 +92,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testSimpleMapping() throws Exception {
-    final User user = mDAO.select(User.class, mTable.getEntityId("taton"));
+    final User user = mDAO.select(User.class, "taton");
     LOG.debug("Decoded user: {}", user);
     assertEquals("Christophe Taton", user.fullName);
     assertEquals(12345, user.zipCode);
@@ -100,7 +100,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testMissingCells() throws Exception {
-    final User user = mDAO.select(User.class, mTable.getEntityId("missing_cells"));
+    final User user = mDAO.select(User.class, "missing_cells");
     LOG.debug("Decoded user: {}", user);
     assertEquals(null, user.fullName);
     assertEquals(0, user.zipCode);
@@ -108,7 +108,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testMissingMapCells() throws Exception {
-    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("missing_cells"));
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, "missing_cells");
     LOG.debug("Decoded user: {}", user);
     assertEquals(null, user.fullName);
     assertEquals(0, user.zipCodes.size());
@@ -116,7 +116,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testMultipleGroupVersions() throws Exception {
-    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("taton"));
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, "taton");
     LOG.debug("Decoded user: {}", user);
     assertEquals("Christophe Taton", user.fullName);
     assertEquals(
@@ -126,11 +126,11 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testMultipleMapVersions() throws Exception {
-    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, mTable.getEntityId("amit"));
+    final UserMultiVersion user = mDAO.select(UserMultiVersion.class, "amit");
     assertEquals("Amit N", user.fullName);
     assertEquals(30, (int) user.queryCount.get("hello"));
 
-    final UserMultiVersion2 user2 = mDAO.select(UserMultiVersion2.class, mTable.getEntityId("amit"));
+    final UserMultiVersion2 user2 = mDAO.select(UserMultiVersion2.class, "amit");
     assertEquals("Amit N", user2.fullName);
     KijiCell<Integer> firstCell = user2.queryCount.next();
     assertEquals(30, (int)firstCell.getData());
@@ -139,7 +139,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testColumnPaging() throws Exception {
-    final UserWithPaging user = mDAO.select(UserWithPaging.class, mTable.getEntityId("taton"));
+    final UserWithPaging user = mDAO.select(UserWithPaging.class, "taton");
     int counter = 0;
     for (Map.Entry<Long, Integer> entry : ForHelper.from(user.zipCodes)) {
       LOG.debug("ZipCode entry: {}", entry);
@@ -151,7 +151,7 @@ public class TestSimpleMapping extends KijiClientTest {
 
   @Test
   public void testMapFamilyPaging() throws Exception {
-    final UserWithPaging user = mDAO.select(UserWithPaging.class, mTable.getEntityId("amit"));
+    final UserWithPaging user = mDAO.select(UserWithPaging.class, "amit");
     int counter = 0;
     for (MapFamilyVersionIterator.Entry<Integer> entry : ForHelper.from(user.queryCount)) {
       LOG.debug("QueryCount entry: {}", entry);

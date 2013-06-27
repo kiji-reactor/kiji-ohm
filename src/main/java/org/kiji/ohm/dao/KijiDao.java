@@ -100,10 +100,10 @@ public final class KijiDao implements Closeable {
    * @param entityId
    * @return
    */
-  public <T> T select(Class<T> klass, EntityId entityId) throws IOException {
+  public <T> T select(Class<T> klass, Object...entityIdComponents) throws IOException {
     return select(
-        klass, entityId,
-        0 /*HConstants.OLDEST_TIMESTAMP*/, HConstants.LATEST_TIMESTAMP);
+        klass,
+        0 /*HConstants.OLDEST_TIMESTAMP*/, HConstants.LATEST_TIMESTAMP, entityIdComponents);
   }
 
   /**
@@ -128,23 +128,23 @@ public final class KijiDao implements Closeable {
    * @param endTime
    * @return
    */
-  public <T> T select(Class<T> klass, EntityId entityId, long startTime, long endTime)
+  public <T> T select(Class<T> klass, long startTime, long endTime, Object...entityIdComponents)
       throws IOException {
     final EntitySpec<T> spec = getEntitySpec(klass);
     final T entity = spec.newEntity();
-    return populateFromRow(spec, entity, entityId, startTime, endTime);
+    return populateFromRow(spec, entity, startTime, endTime, entityIdComponents);
   }
 
-  public <T> T populateFromRow(T entity, EntityId entityId, long startTime, long endTime)
+  public <T> T populateFromRow(T entity, long startTime, long endTime, Object...entityIdComponents)
       throws IOException {
     @SuppressWarnings("unchecked")
     final Class<T> klass = (Class<T>) entity.getClass();
     final EntitySpec<T> spec = getEntitySpec(klass);
-    return populateFromRow(spec, entity, entityId, startTime, endTime);
+    return populateFromRow(spec, entity, startTime, endTime, entityIdComponents);
   }
 
   private <T> T populateFromRow(
-      EntitySpec<T> spec, T entity, EntityId entityId, long startTime, long endTime)
+      EntitySpec<T> spec, T entity, long startTime, long endTime, Object...entityIdComponents)
       throws IOException {
 
     // TODO: Use a pool of tables and/or table readers
@@ -156,7 +156,7 @@ public final class KijiDao implements Closeable {
         builder.withTimeRange(startTime, endTime);
         spec.populateColumnRequests(builder);
         final KijiDataRequest dataRequest = builder.build();
-
+        final EntityId entityId = table.getEntityId(entityIdComponents);
         final KijiRowData row = reader.get(entityId, dataRequest);
 
         try {
